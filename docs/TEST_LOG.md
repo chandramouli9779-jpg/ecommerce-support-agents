@@ -33,6 +33,8 @@ exactly as printed in the terminal. Each entry states the code version it was ru
 | 9 | 2026-11-08 | v0.4 | `python run_llm.py` | 2 of 4 match policy (A, B correct; C, D differ) |
 | 10 | 2026-11-08 | v0.5 | `pytest -v` | 57 passed |
 | 11 | 2026-11-08 | v0.5 | `python run_llm.py` | 3 of 4 match policy (B, C, D correct; A differs) |
+| 12 | 2026-11-08 | v0.6 | `pytest -v` | 64 passed |
+| 13 | 2026-11-08 | v0.6 | Streamlit UI, "Run LLM agent on all scenarios" | LLM 3 of 4 (same as Run 11); classical agents unchanged |
 
 ---
 
@@ -395,3 +397,60 @@ Raw output:
   - Claim check: no unsupported claims found.
   - Action check: the data meets this action's conditions.
 ```
+
+---
+
+## Run 12: Unit tests with Streamlit UI (v0.6)
+
+`pytest -v` - **64 passed in 13.98s**
+
+| Test file | Tests | Result |
+|---|---|---|
+| `tests/test_agents.py` | 27 | all passed |
+| `tests/test_app.py` | 7 | all passed (new) |
+| `tests/test_llm_agent.py` | 17 | all passed |
+| `tests/test_tools.py` | 13 | all passed |
+
+The longer run time comes from `tests/test_app.py`, which starts the Streamlit app several
+times using Streamlit's AppTest. These tests use a stand-in LLM agent and a temporary
+learning file, so they need no Ollama and do not change `data/experience.json`.
+
+---
+
+## Run 13: Streamlit UI, all scenarios (v0.6)
+
+Run from the UI's "All scenarios" tab with the button "Run LLM agent on all scenarios",
+model `qwen3:1.7b`. Evidence: screenshot of the decision matrix and the matches table.
+
+### Decision matrix (as shown in the UI)
+
+| Agent | Scenario A | Scenario B | Scenario C | Scenario D |
+|---|---|---|---|---|
+| Simple Reflex | ✔ open_carrier_investigation | ✘ inform_refund_in_progress | ✘ advise_return_process | ✔ share_tracking |
+| Model-Based Reflex | ✔ open_carrier_investigation | ✔ escalate_to_payments | ✔ request_clarification_and_flag | ✔ share_tracking |
+| Goal-Based | ✔ open_carrier_investigation | ✔ escalate_to_payments | ✔ request_clarification_and_flag | ✔ share_tracking |
+| Utility-Based | ✔ open_carrier_investigation | ✔ escalate_to_payments | ✔ request_clarification_and_flag | ✔ share_tracking |
+| Learning | ✔ open_carrier_investigation | ✔ escalate_to_payments | ✔ request_clarification_and_flag | ✔ share_tracking |
+| LLM (Ollama + tools) | ✘ request_clarification_and_flag | ✔ escalate_to_payments | ✔ request_clarification_and_flag | ✔ share_tracking |
+| Policy-expected | open_carrier_investigation | escalate_to_payments | request_clarification_and_flag | share_tracking |
+
+### Matches with policy per agent
+
+| Agent | Matches | Scenarios run |
+|---|---|---|
+| Simple Reflex | 2 | 4 |
+| Model-Based Reflex | 4 | 4 |
+| Goal-Based | 4 | 4 |
+| Utility-Based | 4 | 4 |
+| Learning | 4 | 4 |
+| LLM (Ollama + tools) | 3 | 4 |
+
+### Findings
+
+1. **The UI runs all six agents end to end** on the real model, and its results agree with
+   the command-line runs (Run 5 for the classical agents, Run 11 for the LLM agent).
+2. **The LLM result was identical to Run 11:** the same action in all four scenarios,
+   including the same wrong action in A. Together with the identical A explanations in
+   Runs 8 and 9, this indicates the model's output is reproducible at temperature 0 when
+   the code is unchanged (2 runs per scenario on v0.5/v0.6 code; not a large sample).
+3. **Simple Reflex** still differs in B and C, for the reasons recorded in Run 5.
