@@ -3,6 +3,12 @@
 Version history of the E-commerce Order and Refund Support Assistant (Mini Project 1).
 Test results for each version are in `docs/TEST_LOG.md`.
 
+## v0.7 - 2026-11-08 - README
+
+- Added `README.md`: requirements checklist, project structure, Windows setup, run
+  instructions, scenarios, the six agents, results and comparison, why decisions differ,
+  evidence checking, limitations, testing and version history.
+
 ## v0.6 - 2026-11-08 - Streamlit UI
 
 - Added `app.py` (run with `streamlit run app.py`):
