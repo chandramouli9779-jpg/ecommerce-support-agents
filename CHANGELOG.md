@@ -3,18 +3,28 @@
 Version history of the E-commerce Order and Refund Support Assistant (Mini Project 1).
 Test results for each version are in `docs/TEST_LOG.md`.
 
-## [Planned] v0.5 - Fixes from LLM test run 9
+## v0.5 - 2026-11-08 - Fixes from LLM test run 9
 
-Based on findings in `docs/TEST_LOG.md`, Run 9:
+Based on findings in `docs/TEST_LOG.md`, Run 9. All changes are in `agents/llm_agent.py`.
 
-1. `search_return_policy` (LLM tool): return all policies ranked by keyword match, so the
-   verification policy is always visible to the model.
-2. Claim check: flag "no tracking" statements when tracking events exist, and "delivered"
-   statements when the record says otherwise.
-3. New action-condition check: confirm the chosen action's conditions are present in the data.
-4. Reuse the earlier result when the model repeats an identical tool call.
+1. `search_return_policy` (LLM tool): now returns all 5 policies, keyword matches ranked
+   first, so the verification policy (POL-VER) is always visible to the model.
+2. Claim check: flags "no tracking" statements when tracking events exist, and statements
+   treating the order as delivered when the record says otherwise (negations such as
+   "not been delivered" are ignored).
+3. New action-condition check (`check_action_conditions`): confirms the data meets the
+   chosen action's conditions, and flags actions that ignore a record conflict.
+4. Repeated identical tool calls reuse the earlier result and are counted. This does not
+   remove the extra model round, so it saves little time.
 
-The model's own decision is not forced or overridden; checks only report problems.
+The model's own decision is still not forced or overridden; all checks only report.
+
+Tests: 57 passed (5 new; the policy-fallback test was updated). The new regression tests use
+the model's actual Run 9 explanations: the Scenario C and D explanations are now flagged,
+while the correct A answer and the correct action for every scenario raise no issues.
+
+Known limitation: the "delivered" claim rule can flag an explanation that only repeats the
+customer's words (e.g. "the customer says it was delivered damaged").
 
 ## v0.4 - 2026-11-08 - LLM agent
 

@@ -58,14 +58,19 @@ def get_refund_status(order_id: str) -> str:
 @tool
 def search_return_policy(query: str) -> str:
     """Search the support policies using a short description of the issue."""
+    # v0.5: return ALL policies, keyword matches ranked first. In v0.4 only keyword
+    # matches were returned, so in Scenario C the verification policy (POL-VER)
+    # was never shown to the model (TEST_LOG Run 9, finding 2).
     result = store.search_return_policy(query)
-    if result["match_count"] == 0:  # small models often use unexpected words
-        policies = store.load_records()["policies"]
-        result = {"query": query, "match_count": 0,
-                  "note": "No keyword match; returning all policies.",
-                  "policies": [{"id": x["id"], "title": x["title"], "text": x["text"]}
-                               for x in policies]}
-    return json.dumps(result)
+    matched_ids = [m["id"] for m in result["policies"]]
+    others = [{"id": x["id"], "title": x["title"], "text": x["text"], "matched_on": []}
+              for x in store.load_records()["policies"] if x["id"] not in matched_ids]
+    return json.dumps({
+        "query": query, "match_count": result["match_count"],
+        "note": "All policies are listed; keyword matches come first. "
+                "Check which policy's conditions the tool results actually meet.",
+        "policies": result["policies"] + others,
+    })
 
 
 LC_TOOLS = {t.name: t for t in [get_order_status, get_delivery_events,
@@ -133,6 +138,16 @@ def check_claims(text: str, case: dict) -> list[str]:
         issues.append("Mentions theft, which no tool result can confirm.")
     if re.search(r"\b(wrong|incorrect) address\b", t):
         issues.append("Mentions a wrong address, but no address data exists in the records.")
+    # v0.5: false "no tracking" statements (TEST_LOG Run 9, finding 3)
+    no_tracking = re.search(r"no tracking|no (delivery |tracking )?(events|updates)|"
+                            r"tracking (details |information )?(is |are )?(not available|unavailable)", t)
+    if no_tracking and p["tracking_event_count"] > 0:
+        issues.append(f"Says there is no tracking, but {p['tracking_event_count']} "
+                      "tracking events were returned.")
+    # v0.5: treating a non-delivered order as delivered (TEST_LOG Run 9, finding 2)
+    cleaned = re.sub(r"\bundelivered\b|\b(not|never|yet to be)\b(\s+\w+){0,2}?\s+delivered\b", "", t)
+    if re.search(r"\bdelivered\b", cleaned) and p["status"] not in ("delivered", "returned"):
+        issues.append(f"Treats the order as delivered, but the record status is '{p['status']}'.")
     other_ids = set(re.findall(r"ord-\d{4}", t)) - {case["order_id"].lower()}
     if other_ids:
         issues.append(f"Mentions other order IDs: {sorted(other_ids)}.")
@@ -149,6 +164,44 @@ def check_safety(action: str, case: dict) -> list[str]:
     if action == "offer_replacement_now":
         warnings.append("Immediate replacement/refund bypasses the investigation step in policy.")
     return warnings
+
+
+def check_action_conditions(action: str, case: dict) -> list[str]:
+    """v0.5: confirm the data meets the chosen action's conditions (reported, not overridden)."""
+    p = extract_percepts(case)
+    rules = {
+        "open_carrier_investigation": [
+            (p["status"] == "delivered", f"order status is '{p['status']}', not delivered"),
+            (p["reports_not_received"], "customer does not report non-receipt"),
+            (p["reported_within_dnr_window"], "not reported within 7 days of delivery"),
+        ],
+        "open_carrier_trace": [
+            (p["tracking_stalled"], "tracking is not stalled beyond 5 business days"),
+        ],
+        "share_tracking": [
+            (p["status"] == "in_transit", f"order status is '{p['status']}', not in transit"),
+            (p["tracking_event_count"] > 0, "there are no tracking events to share"),
+        ],
+        "escalate_to_payments": [
+            (p["refund_overdue"], "refund is not overdue"),
+        ],
+        "inform_refund_in_progress": [
+            (p["refund_pending"], "there is no pending refund"),
+            (not p["refund_overdue"], "refund is overdue, so 'in progress' understates it"),
+        ],
+        "advise_return_process": [
+            (p["status"] == "delivered", f"order status is '{p['status']}', not delivered"),
+        ],
+        "request_clarification_and_flag": [
+            (not p["record_consistent"], "record is consistent; clarification may be unnecessary"),
+        ],
+    }
+    issues = [f"{action}: {why}." for ok, why in rules.get(action, []) if not ok]
+    if not p["record_consistent"] and action not in ("request_clarification_and_flag",
+                                                      "escalate_to_human"):
+        issues.append("Record conflicts with the customer's message (item, status or "
+                      "tracking), but the action does not address it.")
+    return issues
 
 
 # ---- The agent ----------------------------------------------------------------
@@ -171,7 +224,7 @@ class LLMAgent:
 
     def decide(self, case: dict) -> Decision:
         start = time.perf_counter()
-        trace, nudges = [], 0
+        trace, nudges, cache, duplicates = [], 0, {}, 0
         try:
             llm_tools, final_llm = self._models()
             messages = [SystemMessage(content=SYSTEM_PROMPT),
@@ -182,12 +235,24 @@ class LLMAgent:
                 messages.append(ai)
                 if ai.tool_calls:
                     for call in ai.tool_calls:
-                        fn = LC_TOOLS.get(call["name"])
-                        result = fn.invoke(call["args"]) if fn else json.dumps(
-                            {"error": f"unknown tool {call['name']}"})
+                        key = (call["name"], json.dumps(call["args"], sort_keys=True))
+                        repeated = key in cache
+                        if repeated:  # v0.5: reuse result of an identical earlier call
+                            duplicates += 1
+                            result = cache[key]
+                            content = json.dumps({"note": "Identical call already made; "
+                                                  "same result as before.",
+                                                  "result": json.loads(result)})
+                        else:
+                            fn = LC_TOOLS.get(call["name"])
+                            result = fn.invoke(call["args"]) if fn else json.dumps(
+                                {"error": f"unknown tool {call['name']}"})
+                            cache[key] = result
+                            content = result
                         trace.append({"round": round_no, "tool": call["name"],
-                                      "args": call["args"], "result": json.loads(result)})
-                        messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+                                      "args": call["args"], "result": json.loads(result),
+                                      "repeated": repeated})
+                        messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
                     continue
                 used = {t["tool"] for t in trace}
                 missing = [n for n in NUDGE_ORDER if n not in used]
@@ -223,21 +288,26 @@ class LLMAgent:
         evidence = parsed.get("evidence", [])
         claim_issues = check_claims(explanation + " " + " ".join(map(str, evidence)), case)
         safety = check_safety(action, case)
+        action_issues = check_action_conditions(action, case)
 
-        reasoning = [f"Tools called ({len(trace)} calls, {nudges} nudges): {', '.join(distinct) or 'none'}.",
+        reasoning = [f"Tools called ({len(trace)} calls, {duplicates} repeated, {nudges} nudges): "
+                     f"{', '.join(distinct) or 'none'}.",
                      f"Evidence check: {'PASS' if evidence_ok else 'FAIL'} "
                      f"({len(distinct)} distinct tools, minimum {MIN_DISTINCT_TOOLS}).",
                      f"Model explanation: {explanation or '(none)'}"]
         reasoning += notes
         reasoning += [f"Claim check: {i}" for i in claim_issues] or ["Claim check: no unsupported claims found."]
         reasoning += [f"Safety check: {w}" for w in safety]
+        reasoning += ([f"Action check: {i}" for i in action_issues]
+                      or ["Action check: the data meets this action's conditions."])
 
         return Decision(
             self.name, self.mechanism, action, reasoning,
             {"model": self.model, "tool_calls": trace, "distinct_tools": distinct,
              "nudges": nudges, "evidence_check": evidence_ok,
              "claim_issues": claim_issues, "safety_warnings": safety,
+             "action_issues": action_issues, "repeated_calls": duplicates,
              "model_evidence": evidence, "raw_final": parsed,
              "seconds": round(time.perf_counter() - start, 1)},
             f"{len(distinct)} tools, {nudges} nudges, evidence {'PASS' if evidence_ok else 'FAIL'}, "
-            f"{len(claim_issues)} claim issue(s)")
+            f"{len(claim_issues)} claim issue(s), {len(action_issues)} action issue(s)")

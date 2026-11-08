@@ -80,10 +80,15 @@ def test_ollama_unavailable_returns_safe_decision():
     assert "error" in d.details
 
 
-def test_policy_tool_falls_back_to_all_policies():
+def test_policy_tool_returns_all_policies_matches_first():
     from agents.llm_agent import search_return_policy
     result = json.loads(search_return_policy.invoke({"query": "zzz unrelated words"}))
     assert result["match_count"] == 0 and len(result["policies"]) == 5
+    # v0.4 Scenario C query: POL-DNR matched, but POL-VER must still be visible
+    c_query = "I ordered a brown backpack on ORD-1003 and it was delivered damaged."
+    result = json.loads(search_return_policy.invoke({"query": c_query}))
+    ids = [x["id"] for x in result["policies"]]
+    assert ids[0] == "POL-DNR" and "POL-VER" in ids and len(ids) == 5
 
 
 def test_claim_check_flags_unsupported_delay_in_scenario_a():
@@ -118,3 +123,56 @@ def test_all_actions_listed_in_final_prompt():
     from agents.llm_agent import build_final_prompt
     prompt = build_final_prompt()
     assert all(a in prompt for a in ACTIONS)
+
+
+# ---- v0.5 regression tests using the actual model explanations from TEST_LOG Run 9 ----
+RUN9_C = ("The policy indicates that a carrier investigation should be opened if the item is "
+          "delivered but not received within 7 days. The customer reported the item as delivered "
+          "damaged, and the investigation is eligible once the 3 business day period has passed.")
+RUN9_D = ("The order is in transit and has no tracking updates. The tool result indicates no "
+          "tracking details are available, so opening a carrier trace is appropriate. The "
+          "evidence shows the order is in transit with no tracking events.")
+RUN9_A = ("The customer reported their order as delivered but did not receive the package. The "
+          "'Delivered but not received' policy indicates a carrier investigation is needed.")
+
+
+def test_run9_scenario_c_explanation_now_flagged():
+    from agents.llm_agent import check_action_conditions
+    case = get_case_file("C")
+    assert any("record status is 'shipped'" in i for i in check_claims(RUN9_C, case))
+    issues = check_action_conditions("open_carrier_investigation", case)
+    assert any("not delivered" in i for i in issues)
+    assert any("does not address" in i for i in issues)
+
+
+def test_run9_scenario_d_explanation_now_flagged():
+    from agents.llm_agent import check_action_conditions
+    case = get_case_file("D")
+    assert any("2 tracking events" in i for i in check_claims(RUN9_D, case))
+    assert check_action_conditions("open_carrier_trace", case)
+
+
+def test_run9_correct_answers_stay_clean():
+    from agents.llm_agent import check_action_conditions
+    assert check_claims(RUN9_A, get_case_file("A")) == []
+    for sid, action in [("A", "open_carrier_investigation"), ("B", "escalate_to_payments"),
+                        ("C", "request_clarification_and_flag"), ("D", "share_tracking")]:
+        assert check_action_conditions(action, get_case_file(sid)) == [], sid
+
+
+def test_not_delivered_wording_is_not_flagged():
+    assert check_claims("The order has not been delivered yet.", get_case_file("D")) == []
+
+
+def test_repeated_identical_call_reuses_result():
+    same = {"query": "not received"}
+    llm = FakeLLM([
+        AIMessage(content="", tool_calls=[call("get_order_status", {"order_id": "ORD-1001"}, 1),
+                                          call("search_return_policy", same, 2)]),
+        AIMessage(content="", tool_calls=[call("search_return_policy", same, 3)]),
+        AIMessage(content="Done."),
+    ])
+    d = LLMAgent(llm=llm, final_llm=FakeLLM([final("open_carrier_investigation")])).decide(
+        get_case_file("A"))
+    assert d.details["repeated_calls"] == 1
+    assert [t["repeated"] for t in d.details["tool_calls"]] == [False, False, True]
