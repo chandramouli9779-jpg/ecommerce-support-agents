@@ -1,0 +1,29 @@
+{
+  "_note": "Simulated past outcomes. success = case closed without the customer re-contacting.",
+  "delivered_not_received": {
+    "open_carrier_investigation": {"success": 14, "failure": 3},
+    "offer_replacement_now": {"success": 6, "failure": 5},
+    "escalate_to_human": {"success": 4, "failure": 4}
+  },
+  "refund_overdue": {
+    "escalate_to_payments": {"success": 11, "failure": 1},
+    "inform_refund_in_progress": {"success": 2, "failure": 9}
+  },
+  "refund_pending": {
+    "inform_refund_in_progress": {"success": 9, "failure": 2},
+    "escalate_to_payments": {"success": 3, "failure": 3}
+  },
+  "record_conflict": {
+    "request_clarification_and_flag": {"success": 9, "failure": 2},
+    "advise_return_process": {"success": 3, "failure": 6},
+    "escalate_to_human": {"success": 5, "failure": 4}
+  },
+  "in_transit": {
+    "share_tracking": {"success": 20, "failure": 2},
+    "open_carrier_trace": {"success": 1, "failure": 3}
+  },
+  "tracking_stalled": {
+    "open_carrier_trace": {"success": 7, "failure": 2},
+    "share_tracking": {"success": 1, "failure": 5}
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "reference_date": "2026-11-06",
+  "orders": {
+    "ORD-1001": {
+      "customer_id": "CUST-501",
+      "item": "Wireless headphones",
+      "amount": 2499.0,
+      "currency": "INR",
+      "order_date": "2026-10-28",
+      "status": "delivered",
+      "delivered_on": "2026-11-02",
+      "proof_of_delivery": {"photo": false, "signature": false}
+    },
+    "ORD-1002": {
+      "customer_id": "CUST-502",
+      "item": "Running shoes",
+      "amount": 3999.0,
+      "currency": "INR",
+      "order_date": "2026-10-10",
+      "status": "returned",
+      "delivered_on": "2026-10-14",
+      "proof_of_delivery": {"photo": true, "signature": true}
+    },
+    "ORD-1003": {
+      "customer_id": "CUST-503",
+      "item": "Black leather wallet",
+      "amount": 1299.0,
+      "currency": "INR",
+      "order_date": "2026-10-25",
+      "status": "shipped",
+      "delivered_on": null,
+      "proof_of_delivery": null
+    },
+    "ORD-1004": {
+      "customer_id": "CUST-504",
+      "item": "Desk lamp",
+      "amount": 1799.0,
+      "currency": "INR",
+      "order_date": "2026-11-03",
+      "status": "in_transit",
+      "delivered_on": null,
+      "expected_delivery": "2026-11-08",
+      "proof_of_delivery": null
+    }
+  },
+  "delivery_events": {
+    "ORD-1001": [
+      {"date": "2026-10-30", "event": "shipped"},
+      {"date": "2026-11-01", "event": "out for delivery"},
+      {"date": "2026-11-02", "event": "delivered - left at front door"}
+    ],
+    "ORD-1002": [
+      {"date": "2026-10-11", "event": "shipped"},
+      {"date": "2026-10-14", "event": "delivered - handed to customer"},
+      {"date": "2026-10-22", "event": "return pickup completed"},
+      {"date": "2026-10-24", "event": "return received at warehouse"}
+    ],
+    "ORD-1003": [],
+    "ORD-1004": [
+      {"date": "2026-11-04", "event": "shipped"},
+      {"date": "2026-11-05", "event": "arrived at regional hub"}
+    ]
+  },
+  "returns": {
+    "ORD-1002": {
+      "return_id": "RET-9002",
+      "reason": "size too small",
+      "received_on": "2026-10-24",
+      "inspection_status": "passed",
+      "inspection_date": "2026-10-27"
+    }
+  },
+  "refunds": {
+    "ORD-1002": {
+      "refund_id": "REF-7002",
+      "amount": 3999.0,
+      "status": "pending",
+      "last_updated": "2026-10-27"
+    }
+  },
+  "policies": [
+    {
+      "id": "POL-DNR",
+      "title": "Delivered but not received",
+      "keywords": ["delivered", "not received", "missing", "lost", "stolen", "front door"],
+      "text": "If a customer reports a delivered order as not received within 7 days of the delivery date, open a carrier investigation. If there is no photo or signature proof of delivery, the case is eligible for a replacement or refund once the investigation has run for 3 business days without the package being located."
+    },
+    {
+      "id": "POL-REF",
+      "title": "Refund processing time",
+      "keywords": ["refund", "inspection", "pending", "delay", "return"],
+      "text": "After a returned item passes inspection, the refund must be processed within 5 business days. If the refund is still pending after 5 business days, escalate the case to the payments team and inform the customer of the escalation."
+    },
+    {
+      "id": "POL-RET",
+      "title": "Return window",
+      "keywords": ["return", "window", "eligible", "days"],
+      "text": "Items can be returned within 30 days of delivery. Returned items are inspected within 3 business days of being received at the warehouse."
+    },
+    {
+      "id": "POL-VER",
+      "title": "Record mismatch and verification",
+      "keywords": ["mismatch", "conflict", "incorrect", "incomplete", "wrong item", "verify"],
+      "text": "If the customer's description does not match the order record, or required records are missing, do not take any refund or replacement action. Ask the customer to confirm the order ID and item, and flag the record for review by an operations agent."
+    },
+    {
+      "id": "POL-TRK",
+      "title": "Tracking without updates",
+      "keywords": ["tracking", "no updates", "shipped", "in transit", "where is"],
+      "text": "If an order is in transit and within its expected delivery date, share the tracking information with the customer. If a shipped order has had no tracking events for more than 5 business days, open a carrier trace."
+    }
+  ]
+}
