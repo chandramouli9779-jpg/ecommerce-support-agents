@@ -3,6 +3,28 @@
 Version history of the E-commerce Order and Refund Support Assistant (Mini Project 1).
 Test results for each version are in `docs/TEST_LOG.md`.
 
+## v0.6 - 2026-11-08 - Streamlit UI
+
+- Added `app.py` (run with `streamlit run app.py`):
+  - Scenario picker showing the customer message, order record, tracking events, refund
+    record and the full shared case file.
+  - The five classical agents run on every page load; each shows its decision, whether it
+    matches policy, and agent-specific reasoning (internal state, search plan, utility
+    table, past-outcome table).
+  - The LLM agent runs on a button press (about 30-45 s) and shows its tool calls, raw JSON
+    answer and the evidence, claim, action and safety check results. Results are kept for
+    the session.
+  - Comparison table of all six agents against the policy-expected action.
+  - "It worked" / "It didn't work" buttons for the Learning agent, which update
+    `data/experience.json`; sidebar button to reset it from the seed.
+  - "All scenarios" tab: decision matrix across Scenarios A-D and matches per agent, with
+    a button to run the LLM agent on all four.
+- Added `comparison.py` (table helpers) and `.streamlit/config.toml` (theme).
+- Added `tests/test_app.py` (7 tests using Streamlit's AppTest; a stand-in LLM agent and a
+  temporary learning file are used, so tests need no Ollama and never change
+  `data/experience.json`).
+- Tests: 64 passed.
+
 ## v0.5 - 2026-11-08 - Fixes from LLM test run 9
 
 Based on findings in `docs/TEST_LOG.md`, Run 9. All changes are in `agents/llm_agent.py`.
