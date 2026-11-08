@@ -31,6 +31,8 @@ exactly as printed in the terminal. Each entry states the code version it was ru
 | 7 | 2026-11-08 | v0.4 | `pytest -v` | 52 passed |
 | 8 | 2026-11-08 | v0.4 | `python run_llm.py A` | Correct action, 45.1 s |
 | 9 | 2026-11-08 | v0.4 | `python run_llm.py` | 2 of 4 match policy (A, B correct; C, D differ) |
+| 10 | 2026-11-08 | v0.5 | `pytest -v` | 57 passed |
+| 11 | 2026-11-08 | v0.5 | `python run_llm.py` | 3 of 4 match policy (B, C, D correct; A differs) |
 
 ---
 
@@ -269,4 +271,127 @@ Raw output:
   - Evidence check: PASS (4 distinct tools, minimum 2).
   - Model explanation: The order is in transit and has no tracking updates. The tool result indicates no tracking details are available, so opening a carrier trace is appropriate. The evidence shows the order is in transit with no tracking events.
   - Claim check: no unsupported claims found.
+```
+
+---
+
+## Run 10: Unit tests after v0.5 fixes (v0.5)
+
+`pytest -v` - **57 passed in 0.39s**
+
+| Test file | Tests | Result |
+|---|---|---|
+| `tests/test_agents.py` | 27 | all passed |
+| `tests/test_llm_agent.py` | 17 | all passed (5 new, 1 updated) |
+| `tests/test_tools.py` | 13 | all passed |
+
+The new regression tests use the model's actual Run 9 explanations: the Scenario C and D
+explanations are now flagged by the claim and action checks; the correct Scenario A
+explanation and the correct action for each scenario raise no issues.
+
+`git diff --stat` before committing v0.5:
+
+```
+ CHANGELOG.md            |  28 +++++++++-----
+ agents/llm_agent.py     | 100 ++++++++++++++++++++++++++++++++++++++++--------
+ tests/test_llm_agent.py |  60 ++++++++++++++++++++++++++++-
+ 3 files changed, 163 insertions(+), 25 deletions(-)
+```
+
+---
+
+## Run 11: LLM agent, all scenarios (v0.5)
+
+| Scenario | Policy-expected | LLM chose | Match | Tool calls | Repeated | Nudges | Time |
+|---|---|---|---|---|---|---|---|
+| A | open_carrier_investigation | request_clarification_and_flag | ✘ | 4 | 0 | 0 | 44.3 s |
+| B | escalate_to_payments | escalate_to_payments | ✔ | 4 | 0 | 0 | 36.6 s |
+| C | request_clarification_and_flag | request_clarification_and_flag | ✔ | 4 | 0 | 0 | 33.6 s |
+| D | share_tracking | share_tracking | ✔ | 4 | 0 | 0 | 38.6 s |
+
+### Comparison with Run 9 (v0.4)
+
+| Scenario | Run 9 (v0.4) | Run 11 (v0.5) | Change |
+|---|---|---|---|
+| A | ✔ open_carrier_investigation | ✘ request_clarification_and_flag | Regressed |
+| B | ✔ escalate_to_payments | ✔ escalate_to_payments | Same |
+| C | ✘ open_carrier_investigation | ✔ request_clarification_and_flag | Fixed |
+| D | ✘ open_carrier_trace | ✔ share_tracking | Fixed |
+| Total | 2 of 4 | 3 of 4 | +1 |
+
+### Findings
+
+1. **C and D fixed.** In C the model now asks for clarification instead of opening an
+   investigation; in D it correctly reports the two tracking events and shares tracking.
+2. **A regressed.** The model chose clarification although the record is consistent. The
+   new action check flagged this correctly ("record is consistent; clarification may be
+   unnecessary"). Likely cause: in v0.4 the policy tool returned only POL-DNR for A's query;
+   in v0.5 it returns all 5 policies, including POL-VER, and the model applied it. At
+   temperature 0 the A input was otherwise unchanged and Runs 8 and 9 gave identical A
+   explanations, so the v0.5 policy-tool change is the most likely cause; this is not proven.
+   Trade-off: showing all policies fixed C but made A worse.
+3. **Undetected factual error in D.** The explanation says the order "was shipped on 3
+   November"; the tracking data shows it shipped on 4 November (3 November is the order
+   date). The claim check has no rule for dates, so this was not flagged. The chosen action
+   was still correct.
+4. **No repeated tool calls** in this run (Run 9 had repeats in A and C), so the new
+   repeat-call reuse was not exercised by the real model.
+5. **Checks worked as intended on the real model:** the action check flagged the one wrong
+   decision (A) and raised nothing on the three correct ones.
+6. **Sample size:** one run per scenario.
+
+Raw output:
+
+```
+=== Scenario A: Delivered but not received
+  Policy-expected: open_carrier_investigation
+  [DIFF] LLM -> request_clarification_and_flag   (44.3 s)
+    round 1: get_order_status({'order_id': 'ORD-1001'})
+    round 1: get_delivery_events({'order_id': 'ORD-1001'})
+    round 1: get_refund_status({'order_id': 'ORD-1001'})
+    round 1: search_return_policy({'query': 'My order ORD-1001 shows as delivered on 2 November, but I never received the package. Nothing was at my door.'})
+  - Tools called (4 calls, 0 repeated, 0 nudges): get_delivery_events, get_order_status, get_refund_status, search_return_policy.
+  - Evidence check: PASS (4 distinct tools, minimum 2).
+  - Model explanation: The tool results show no return or refund record for the order. The customer's issue relates to the delivery status, and the order lacks proof of delivery. The action requests clarification and flags the record for review to investigate further.
+  - Claim check: no unsupported claims found.
+  - Action check: request_clarification_and_flag: record is consistent; clarification may be unnecessary.
+
+=== Scenario B: Refund not updated after passed inspection
+  Policy-expected: escalate_to_payments
+  [OK ] LLM -> escalate_to_payments   (36.6 s)
+    round 1: get_order_status({'order_id': 'ORD-1002'})
+    round 1: get_delivery_events({'order_id': 'ORD-1002'})
+    round 1: get_refund_status({'order_id': 'ORD-1002'})
+    round 1: search_return_policy({'query': 'Customer returned running shoes for ORD-1002 and was told they passed inspection, but refund still shows pending.'})
+  - Tools called (4 calls, 0 repeated, 0 nudges): get_delivery_events, get_order_status, get_refund_status, search_return_policy.
+  - Evidence check: PASS (4 distinct tools, minimum 2).
+  - Model explanation: The refund is pending after the inspection, and the policy indicates it must be processed within 5 business days. Escalating to the payments team ensures the refund is handled promptly.
+  - Claim check: no unsupported claims found.
+  - Action check: the data meets this action's conditions.
+
+=== Scenario C: Conflicting / incomplete information
+  Policy-expected: request_clarification_and_flag
+  [OK ] LLM -> request_clarification_and_flag   (33.6 s)
+    round 1: get_order_status({'order_id': 'ORD-1003'})
+    round 1: get_delivery_events({'order_id': 'ORD-1003'})
+    round 1: get_refund_status({'order_id': 'ORD-1003'})
+    round 1: search_return_policy({'query': 'I ordered a brown backpack on ORD-1003 and it was delivered damaged. I want my money back.'})
+  - Tools called (4 calls, 0 repeated, 0 nudges): get_delivery_events, get_order_status, get_refund_status, search_return_policy.
+  - Evidence check: PASS (4 distinct tools, minimum 2).
+  - Model explanation: The tool results show no return or refund record for the order. The customer reported the item as damaged and wants a refund. To proceed, we need to ask the customer to confirm their order details and flag the record for review by an operations agent. This ensures we follow the return policy and handle the case appropriately.
+  - Claim check: no unsupported claims found.
+  - Action check: the data meets this action's conditions.
+
+=== Scenario D: Order in transit, within expected date
+  Policy-expected: share_tracking
+  [OK ] LLM -> share_tracking   (38.6 s)
+    round 1: get_order_status({'order_id': 'ORD-1004'})
+    round 1: get_delivery_events({'order_id': 'ORD-1004'})
+    round 1: get_refund_status({'order_id': 'ORD-1004'})
+    round 1: search_return_policy({'query': 'Where is my order ORD-1004? I placed it on 3 November.'})
+  - Tools called (4 calls, 0 repeated, 0 nudges): get_delivery_events, get_order_status, get_refund_status, search_return_policy.
+  - Evidence check: PASS (4 distinct tools, minimum 2).
+  - Model explanation: The order is in transit, and tracking events indicate it was shipped on 3 November and arrived at the regional hub on 5 November. The tracking information is available, and no refund or replacement is required at this time.
+  - Claim check: no unsupported claims found.
+  - Action check: the data meets this action's conditions.
 ```
