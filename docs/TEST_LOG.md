@@ -35,6 +35,7 @@ exactly as printed in the terminal. Each entry states the code version it was ru
 | 11 | 2026-11-08 | v0.5 | `python run_llm.py` | 3 of 4 match policy (B, C, D correct; A differs) |
 | 12 | 2026-11-08 | v0.6 | `pytest -v` | 64 passed |
 | 13 | 2026-11-08 | v0.6 | Streamlit UI, "Run LLM agent on all scenarios" | LLM 3 of 4 (same as Run 11); classical agents unchanged |
+| 14 | 2026-11-08 | v0.6 | Streamlit UI, single-scenario LLM run and Learning feedback | LLM same action in A as Runs 11 and 13 (70.4 s); feedback button updates the Learning table |
 
 ---
 
@@ -420,7 +421,7 @@ learning file, so they need no Ollama and do not change `data/experience.json`.
 ## Run 13: Streamlit UI, all scenarios (v0.6)
 
 Run from the UI's "All scenarios" tab with the button "Run LLM agent on all scenarios",
-model `qwen3:1.7b`. Evidence: screenshot of the decision matrix and the matches table.
+model `qwen3:1.7b`. Evidence: [screenshot 01](screenshots/01_ui_all_scenarios_matrix.png).
 
 ### Decision matrix (as shown in the UI)
 
@@ -454,3 +455,73 @@ model `qwen3:1.7b`. Evidence: screenshot of the decision matrix and the matches 
    Runs 8 and 9, this indicates the model's output is reproducible at temperature 0 when
    the code is unchanged (2 runs per scenario on v0.5/v0.6 code; not a large sample).
 3. **Simple Reflex** still differs in B and C, for the reasons recorded in Run 5.
+
+---
+
+## Run 14: Streamlit UI functional checks (v0.6)
+
+### LLM agent, Scenario A, from the "Selected scenario" tab
+
+| Item | Result |
+|---|---|
+| Action | request_clarification_and_flag (✘ differs from policy) |
+| Time | 70.4 s |
+| Tool calls | 4 (0 nudges, 0 repeated) |
+| Evidence check | PASS |
+| Claim check | No issues |
+| Action check | 1 issue: "record is consistent; clarification may be unnecessary" |
+| Safety warnings | None |
+
+Findings:
+1. Third run with the same wrong action in A (Runs 11, 13 and 14), consistent with
+   reproducible output at temperature 0.
+2. The UI displays the check results and shows the action-check issue as a warning.
+3. This run took 70.4 s, compared with 32-45 s from the command line (Runs 8, 9, 11).
+   Possible causes are Streamlit running at the same time or the model being reloaded;
+   the cause was not measured.
+
+### Learning agent feedback
+
+Screenshot 03 shows the Learning agent's past-outcome table for `delivered_not_received`
+with the seed data (open_carrier_investigation: 14 successes, 3 failures, success rate
+0.789). Screenshot 04 shows the same table after one click of "It worked":
+
+| Action | Before (screenshot 03) | After (screenshot 04) |
+|---|---|---|
+| open_carrier_investigation | 14 successes / 3 failures, 17 trials, rate 0.789 | 15 successes / 3 failures, 18 trials, rate 0.8 |
+| offer_replacement_now | 6 / 5, 11 trials, 0.538 | unchanged |
+| escalate_to_human | 4 / 4, 8 trials, 0.5 | unchanged |
+
+The success rate is Laplace-smoothed, (successes + 1) / (trials + 2): (14+1)/(17+2) = 0.789
+before and (15+1)/(18+2) = 0.8 after. Only the recommended action's count changed, and the
+reasoning text updated to "15 successes / 3 failures -> estimated success 80%". This shows
+that recorded outcomes update the experience data the Learning agent decides from. The
+decision itself did not change, because the recommended action was already ranked first.
+
+---
+
+## Screenshots
+
+All screenshots are in `docs/screenshots/`.
+
+| File | Shows | Related run |
+|---|---|---|
+| [01_ui_all_scenarios_matrix.png](screenshots/01_ui_all_scenarios_matrix.png) | All scenarios tab: decision matrix and matches per agent | Run 13 |
+| [02_ui_llm_checks_scenario_A.png](screenshots/02_ui_llm_checks_scenario_A.png) | LLM agent result for Scenario A with check table and warning | Run 14 |
+| [03_ui_learning_before_feedback.png](screenshots/03_ui_learning_before_feedback.png) | Learning agent past outcomes (seed data) | Run 14 |
+| [04_ui_learning_after_feedback.png](screenshots/04_ui_learning_after_feedback.png) | Learning agent past outcomes after "It worked" | Run 14 |
+| [05_ui_scenario_overview_1.png](screenshots/05_ui_scenario_overview_1.png) | Selected scenario tab (part 1) | UI overview |
+| [05_ui_scenario_overview_2.png](screenshots/05_ui_scenario_overview_2.png) | Selected scenario tab (part 2) | UI overview |
+| [05_ui_scenario_overview_3.png](screenshots/05_ui_scenario_overview_3.png) | Selected scenario tab (part 3) | UI overview |
+| [06_pytest_64_passed_1.png](screenshots/06_pytest_64_passed_1.png) | `pytest -v` output (part 1) | Run 12 |
+| [06_pytest_64_passed_2.png](screenshots/06_pytest_64_passed_2.png) | `pytest -v` output (part 2), 64 passed | Run 12 |
+
+### All scenarios matrix (Run 13)
+![All scenarios matrix](screenshots/01_ui_all_scenarios_matrix.png)
+
+### LLM agent checks, Scenario A (Run 14)
+![LLM checks Scenario A](screenshots/02_ui_llm_checks_scenario_A.png)
+
+### Learning agent before and after feedback (Run 14)
+![Learning before feedback](screenshots/03_ui_learning_before_feedback.png)
+![Learning after feedback](screenshots/04_ui_learning_after_feedback.png)
